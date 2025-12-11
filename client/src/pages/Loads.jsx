@@ -1,17 +1,22 @@
 import {
+  ArrowRightIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ClockIcon,
+  ExclamationTriangleIcon,
   FunnelIcon,
+  MapPinIcon,
   PencilIcon,
   PlusIcon,
   TrashIcon,
-  TruckIcon
+  TruckIcon,
+  UserIcon
 } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getChannels, getLoads, getSites } from '../lib/api';
+import { deleteLoad, getChannels, getLoads, getSites } from '../lib/api';
 
 /**
  * Load status badge
@@ -291,14 +296,14 @@ function Loads() {
         )}
       </div>
 
-      {/* Loads Table */}
-      <div className="card overflow-hidden">
+      {/* Loads List */}
+      <div className="space-y-4">
         {loading ? (
-          <div className="flex items-center justify-center h-64">
+          <div className="card flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           </div>
         ) : loads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-gray-500">
+          <div className="card flex flex-col items-center justify-center h-64 text-gray-500">
             <TruckIcon className="w-12 h-12 mb-4" />
             <p>No loads found</p>
             {hasActiveFilters && (
@@ -309,105 +314,238 @@ function Loads() {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Load #</th>
-                    <th>Dispatch Date</th>
-                    <th>Origin</th>
-                    <th>Destination</th>
-                    <th>Channel</th>
-                    <th>Vehicle</th>
-                    <th>Packaging</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loads.map((load) => (
-                    <tr key={load.id}>
-                      <td>
-                        <Link 
-                          to={`/loads/${load.id}`}
-                          className="text-primary-600 hover:underline font-medium"
-                        >
-                          {load.load_number}
-                        </Link>
-                        {load.has_discrepancy && (
-                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-red-100 text-red-700" title="Discrepancy">
-                            !
-                          </span>
-                        )}
-                        {load.has_overtime && (
-                          <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-orange-100 text-orange-700" title="Overtime">
-                            ⏱
-                          </span>
-                        )}
-                      </td>
-                      <td>{format(new Date(load.dispatch_date), 'MMM d, yyyy')}</td>
-                      <td>
-                        <span className="font-medium">{load.origin_site_code}</span>
-                        <span className="text-gray-500 text-xs ml-1">{load.origin_site_name}</span>
-                      </td>
-                      <td>
-                        <span className="font-medium">{load.destination_site_code}</span>
-                        <span className="text-gray-500 text-xs ml-1">{load.destination_site_name}</span>
-                      </td>
-                      <td>{load.channel_name || '-'}</td>
-                      <td>
-                        {load.vehicle_name || '-'}
-                        {load.driver_name && (
-                          <span className="text-gray-500 text-xs block">{load.driver_name}</span>
-                        )}
-                      </td>
-                      <td>
-                        {load.packaging ? (
-                          <div className="text-xs space-y-0.5">
-                            {load.packaging.slice(0, 2).map((pkg, idx) => (
-                              <div key={idx}>
-                                {pkg.quantity_dispatched}x {pkg.packaging_type_name}
-                              </div>
+            {/* Load Cards */}
+            {loads.map((load) => (
+              <div key={load.id} className="card hover:shadow-md transition-shadow">
+                {/* Card Header */}
+                <div className="p-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <Link 
+                      to={`/loads/${load.id}`}
+                      className="text-lg font-bold text-primary-600 hover:underline"
+                    >
+                      {load.load_number}
+                    </Link>
+                    <LoadStatusBadge status={load.status} />
+                    {load.has_discrepancy && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-red-100 text-red-700">
+                        <ExclamationTriangleIcon className="w-3 h-3" />
+                        Discrepancy
+                      </span>
+                    )}
+                    {load.has_overtime && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-100 text-orange-700">
+                        <ClockIcon className="w-3 h-3" />
+                        Overtime
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(load.status === 'scheduled' || load.status === 'loading') && (
+                      <Link
+                        to={`/loads/${load.id}/edit`}
+                        className="p-2 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded-lg"
+                        title="Edit"
+                      >
+                        <PencilIcon className="w-4 h-4" />
+                      </Link>
+                    )}
+                    {load.status === 'scheduled' && (
+                      <button
+                        onClick={() => handleDeleteLoad(load)}
+                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        title="Delete"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                    <Link
+                      to={`/loads/${load.id}`}
+                      className="btn btn-secondary btn-sm"
+                    >
+                      View Details
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Card Body */}
+                <div className="p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    
+                    {/* Route Section */}
+                    <div className="lg:col-span-2">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-1 text-xs text-gray-500 mb-1">
+                            <MapPinIcon className="w-3 h-3" />
+                            Origin
+                          </div>
+                          <p className="font-semibold text-gray-900">{load.origin_site_name}</p>
+                          <p className="text-xs text-gray-500">{load.origin_site_code}</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <div className="w-8 h-0.5 bg-gray-200"></div>
+                          <TruckIcon className="w-5 h-5 text-gray-400" />
+                          <ArrowRightIcon className="w-4 h-4" />
+                          <div className="w-8 h-0.5 bg-gray-200"></div>
+                        </div>
+                        <div className="flex-1 text-right">
+                          <div className="flex items-center justify-end gap-1 text-xs text-gray-500 mb-1">
+                            <MapPinIcon className="w-3 h-3" />
+                            Destination
+                          </div>
+                          <p className="font-semibold text-gray-900">{load.destination_site_name}</p>
+                          <p className="text-xs text-gray-500">{load.destination_site_code}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Schedule Section */}
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                        <ClockIcon className="w-3 h-3" />
+                        Schedule
+                      </div>
+                      <p className="font-semibold text-gray-900">
+                        {format(new Date(load.dispatch_date), 'MMM d, yyyy')}
+                      </p>
+                      {load.scheduled_departure_time && (
+                        <p className="text-xs text-gray-500">Depart: {load.scheduled_departure_time}</p>
+                      )}
+                      {load.estimated_arrival_time && (
+                        <p className="text-xs text-gray-500">ETA: {load.estimated_arrival_time}</p>
+                      )}
+                    </div>
+
+                    {/* Transport Section */}
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+                        <TruckIcon className="w-3 h-3" />
+                        Transport
+                      </div>
+                      <p className="font-semibold text-gray-900">{load.vehicle_name || '-'}</p>
+                      {load.driver_name && (
+                        <p className="text-xs text-gray-500 flex items-center gap-1">
+                          <UserIcon className="w-3 h-3" />
+                          {load.driver_name}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom Row - Times & Packaging */}
+                  <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    
+                    {/* Farm Times */}
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-orange-50 rounded-lg">
+                        <ClockIcon className="w-4 h-4 text-orange-500" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-500">Farm Times</p>
+                        <div className="flex gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Arr: </span>
+                            <span className={`font-medium ${load.actual_farm_arrival_time ? (load.farm_arrival_overtime_minutes > 0 ? 'text-red-600' : 'text-green-600') : 'text-gray-400'}`}>
+                              {load.actual_farm_arrival_time 
+                                ? format(new Date(load.actual_farm_arrival_time), 'HH:mm')
+                                : load.expected_farm_arrival_time || '14:00'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Dep: </span>
+                            <span className={`font-medium ${load.actual_farm_departure_time ? (load.farm_departure_overtime_minutes > 0 ? 'text-red-600' : 'text-green-600') : 'text-gray-400'}`}>
+                              {load.actual_farm_departure_time 
+                                ? format(new Date(load.actual_farm_departure_time), 'HH:mm')
+                                : load.expected_farm_departure_time || '17:00'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Depot Times */}
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-blue-50 rounded-lg">
+                        <ClockIcon className="w-4 h-4 text-blue-500" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-500">Depot Times</p>
+                        <div className="flex gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500">Arr: </span>
+                            <span className={`font-medium ${load.arrived_depot_time ? 'text-green-600' : 'text-gray-400'}`}>
+                              {load.arrived_depot_time 
+                                ? format(new Date(load.arrived_depot_time), 'HH:mm')
+                                : load.estimated_arrival_time || '-'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Dep: </span>
+                            <span className={`font-medium ${load.departed_depot_time ? 'text-green-600' : 'text-gray-400'}`}>
+                              {load.departed_depot_time 
+                                ? format(new Date(load.departed_depot_time), 'HH:mm')
+                                : load.expected_depot_departure_time || '-'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Packaging Summary */}
+                    <div className="flex items-center gap-4">
+                      <div className="p-2 bg-primary-50 rounded-lg">
+                        <TruckIcon className="w-4 h-4 text-primary-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-500">Packaging</p>
+                        {load.packaging && load.packaging.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {load.packaging.slice(0, 3).map((pkg, idx) => (
+                              <span key={idx} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                                {pkg.quantity_dispatched}x {pkg.packaging_type_code || pkg.packaging_type_name}
+                              </span>
                             ))}
-                            {load.packaging.length > 2 && (
-                              <div className="text-gray-500">+{load.packaging.length - 2} more</div>
+                            {load.packaging.length > 3 && (
+                              <span className="text-xs text-gray-500">+{load.packaging.length - 3} more</span>
                             )}
                           </div>
-                        ) : '-'}
-                      </td>
-                      <td>
-                        <LoadStatusBadge status={load.status} />
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1">
-                          {(load.status === 'scheduled' || load.status === 'loading') && (
-                            <Link
-                              to={`/loads/${load.id}/edit`}
-                              className="p-1.5 text-gray-400 hover:text-primary-600 hover:bg-gray-100 rounded"
-                              title="Edit"
-                            >
-                              <PencilIcon className="w-4 h-4" />
-                            </Link>
-                          )}
-                          {load.status === 'scheduled' && (
-                            <button
-                              onClick={() => handleDeleteLoad(load)}
-                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
-                              title="Delete"
-                            >
-                              <TrashIcon className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Backload Badge */}
+                  {load.backload_site_name && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                        <ArrowRightIcon className="w-3 h-3 rotate-180" />
+                        Backload: {load.backload_site_name}
+                      </span>
+                      {load.backload_packaging && load.backload_packaging.length > 0 && (
+                        <span className="text-xs text-gray-500">
+                          ({load.backload_packaging.reduce((sum, bp) => sum + (bp.quantity_returned || 0), 0)} items returning)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Channel Badge */}
+                  {load.channel_name && (
+                    <div className="mt-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-700">
+                        {load.channel_name}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
 
             {/* Pagination */}
-            <div className="p-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="card p-4 flex items-center justify-between">
               <p className="text-sm text-gray-500">
                 Showing {pagination.offset + 1} to {Math.min(pagination.offset + pagination.limit, pagination.total)} of {pagination.total} loads
               </p>

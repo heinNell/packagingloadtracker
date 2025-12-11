@@ -1,17 +1,18 @@
 import {
-    ArrowDownIcon,
-    ArrowsRightLeftIcon,
-    ArrowUpIcon,
-    CubeIcon,
-    PencilIcon,
-    PlusIcon,
-    XMarkIcon,
+  ArrowDownIcon,
+  ArrowsRightLeftIcon,
+  ArrowUpIcon,
+  CubeIcon,
+  PencilIcon,
+  PlusIcon,
+  TrashIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { format } from 'date-fns';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
-import { createPackagingType, getPackagingMovements, getPackagingTypes, updatePackagingType } from '../lib/api';
+import { createPackagingType, deletePackagingType, getPackagingMovements, getPackagingTypes, updatePackagingType } from '../lib/api';
 
 function Packaging() {
   const [packagingTypes, setPackagingTypes] = useState([]);
@@ -31,7 +32,7 @@ function Packaging() {
   const loadData = async () => {
     try {
       const [typesRes, movementsRes] = await Promise.all([
-        getPackagingTypes({}),
+        getPackagingTypes({ active: true }),
         getPackagingMovements({ limit: 50 }),
       ]);
       setPackagingTypes(typesRes.data.packagingTypes || []);
@@ -91,6 +92,20 @@ function Packaging() {
       toast.error(error.response?.data?.error?.message || 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (type) => {
+    if (!window.confirm(`Are you sure you want to delete "${type.name}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deletePackagingType(type.id);
+      // Remove from local state immediately so it disappears
+      setPackagingTypes(prev => prev.filter(t => t.id !== type.id));
+      toast.success('Packaging type deleted');
+    } catch (error) {
+      toast.error(error.response?.data?.error?.message || 'Failed to delete');
     }
   };
 
@@ -159,12 +174,22 @@ function Packaging() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {packagingTypes.map(type => (
             <div key={type.id} className="card p-5 relative group">
-              <button
-                onClick={() => openModal(type)}
-                className="absolute top-3 right-12 opacity-0 group-hover:opacity-100 transition-opacity p-2 hover:bg-gray-100 rounded"
-              >
-                <PencilIcon className="w-4 h-4 text-gray-500" />
-              </button>
+              <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => openModal(type)}
+                  className="p-2 hover:bg-gray-100 rounded"
+                  title="Edit"
+                >
+                  <PencilIcon className="w-4 h-4 text-gray-500" />
+                </button>
+                <button
+                  onClick={() => handleDelete(type)}
+                  className="p-2 hover:bg-red-50 rounded"
+                  title="Delete"
+                >
+                  <TrashIcon className="w-4 h-4 text-red-500" />
+                </button>
+              </div>
               <div className="flex items-start justify-between mb-4">
                 <div className="p-3 bg-primary-100 rounded-lg">
                   <CubeIcon className="w-6 h-6 text-primary-600" />
@@ -279,19 +304,19 @@ function Packaging() {
             <form onSubmit={handleSubmit(onSubmit)} className="p-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+                  <label className="form-label">Code *</label>
                   <input
                     {...register('code', { required: 'Code is required' })}
-                    className="input"
+                    className="form-input"
                     placeholder="e.g. BIN-500"
                   />
                   {errors.code && <p className="text-red-500 text-xs mt-1">{errors.code.message}</p>}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+                  <label className="form-label">Name *</label>
                   <input
                     {...register('name', { required: 'Name is required' })}
-                    className="input"
+                    className="form-input"
                     placeholder="e.g. 500kg Bin"
                   />
                   {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
@@ -299,10 +324,10 @@ function Packaging() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label className="form-label">Description</label>
                 <textarea
                   {...register('description')}
-                  className="input"
+                  className="form-textarea"
                   rows="2"
                   placeholder="Optional description"
                 />
@@ -310,20 +335,20 @@ function Packaging() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Capacity (kg)</label>
+                  <label className="form-label">Capacity (kg)</label>
                   <input
                     type="number"
                     {...register('capacityKg')}
-                    className="input"
+                    className="form-input"
                     placeholder="e.g. 500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Turnaround Days</label>
+                  <label className="form-label">Turnaround Days</label>
                   <input
                     type="number"
                     {...register('expectedTurnaroundDays')}
-                    className="input"
+                    className="form-input"
                     placeholder="e.g. 14"
                   />
                 </div>

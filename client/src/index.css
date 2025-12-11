@@ -95,15 +95,27 @@ body {
 
 /* Form styles */
 .form-input {
-  @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm;
+  @apply block w-full rounded-md border border-gray-300 px-4 py-3 text-base shadow-sm focus:border-primary-500 focus:ring-primary-500 focus:outline-none;
+  min-height: 44px;
 }
 
 .form-label {
-  @apply block text-sm font-medium text-gray-700 mb-1;
+  @apply block text-sm font-medium text-gray-700 mb-1.5;
 }
 
 .form-select {
-  @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm;
+  @apply block w-full rounded-md border border-gray-300 px-4 py-3 text-base shadow-sm focus:border-primary-500 focus:ring-primary-500 focus:outline-none appearance-none bg-white;
+  min-height: 44px;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 0.75rem center;
+  background-repeat: no-repeat;
+  background-size: 1.25em 1.25em;
+  padding-right: 2.5rem;
+}
+
+.form-textarea {
+  @apply block w-full rounded-md border border-gray-300 px-4 py-3 text-base shadow-sm focus:border-primary-500 focus:ring-primary-500 focus:outline-none resize-y;
+  min-height: 100px;
 }
 
 /* Table styles */

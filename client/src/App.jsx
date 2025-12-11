@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
+import LiveTrackingPage from './pages/LiveTrackingPage';
 import LoadDetail from './pages/LoadDetail';
 import LoadForm from './pages/LoadForm';
 import Loads from './pages/Loads';
@@ -57,6 +58,7 @@ function App() {
         <Route path="sites" element={<Sites />} />
         <Route path="sites/:id" element={<SiteDetail />} />
         <Route path="packaging" element={<Packaging />} />
+        <Route path="tracking" element={<LiveTrackingPage />} />
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
       </Route>

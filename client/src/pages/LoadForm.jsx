@@ -1,23 +1,66 @@
 import {
-    ArrowLeftIcon,
-    PlusIcon,
-    TrashIcon,
+  ArrowLeftIcon,
+  ClockIcon,
+  PlusIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
+import { differenceInMinutes } from 'date-fns';
 import { useEffect, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-    createLoad,
-    getChannels,
-    getDrivers,
-    getLoad,
-    getPackagingTypes,
-    getProducts,
-    getSites,
-    getVehicles,
-    updateLoad,
+  createLoad,
+  getChannels,
+  getDrivers,
+  getLoad,
+  getPackagingTypes,
+  getProducts,
+  getSites,
+  getVehicles,
+  updateLoad,
 } from '../lib/api';
+
+/** Default expected farm times for BV and CBC farms */
+const DEFAULT_EXPECTED_FARM_ARRIVAL_TIME = '14:00';
+const DEFAULT_EXPECTED_FARM_DEPARTURE_TIME = '17:00';
+
+/**
+ * Format duration from minutes to human-readable string
+ * @param {number} minutes
+ * @returns {string}
+ */
+function formatDuration(minutes) {
+  if (minutes === null || minutes === undefined || isNaN(minutes)) return '-';
+  const absMinutes = Math.abs(minutes);
+  const hours = Math.floor(absMinutes / 60);
+  const mins = absMinutes % 60;
+  const sign = minutes < 0 ? '-' : '+';
+  if (hours === 0) return `${sign}${mins}m`;
+  if (mins === 0) return `${sign}${hours}h`;
+  return `${sign}${hours}h ${mins}m`;
+}
+
+/**
+ * Calculate time difference between expected and actual
+ * @param {string} expectedTime - TIME format HH:mm
+ * @param {string} actualTime - TIME format HH:mm  
+ * @param {string} date - DATE format YYYY-MM-DD
+ * @returns {{ diff: number | null; isOvertime: boolean }}
+ */
+function calculateTimeDiff(expectedTime, actualTime, date) {
+  if (!expectedTime || !actualTime || !date) {
+    return { diff: null, isOvertime: false };
+  }
+  try {
+    const expectedDateTime = new Date(`${date}T${expectedTime}`);
+    const actualDateTime = new Date(`${date}T${actualTime}`);
+    const diffMinutes = differenceInMinutes(actualDateTime, expectedDateTime);
+    return { diff: diffMinutes, isOvertime: diffMinutes > 0 };
+  } catch {
+    return { diff: null, isOvertime: false };
+  }
+}
 
 function LoadForm() {
   const { id } = useParams();
@@ -36,13 +79,46 @@ function LoadForm() {
   const { register, control, handleSubmit, reset, watch, formState: { errors } } = useForm({
     defaultValues: {
       dispatchDate: new Date().toISOString().split('T')[0],
+      expectedFarmArrivalTime: DEFAULT_EXPECTED_FARM_ARRIVAL_TIME,
+      expectedFarmDepartureTime: DEFAULT_EXPECTED_FARM_DEPARTURE_TIME,
+      actualFarmArrivalTime: '',
+      actualFarmDepartureTime: '',
+      expectedDepotArrivalTime: '',
+      actualDepotArrivalTime: '',
+      expectedDepotDepartureTime: '',
+      actualDepotDepartureTime: '',
       packaging: [{ packagingTypeId: '', quantity: 1 }],
+      backloadSiteId: '',
+      backloadNotes: '',
+      backloadPackaging: [],
     },
   });
+
+  // Watch time fields for calculating differences
+  const watchedDispatchDate = watch('dispatchDate');
+  const watchedExpectedFarmArrival = watch('expectedFarmArrivalTime');
+  const watchedActualFarmArrival = watch('actualFarmArrivalTime');
+  const watchedExpectedFarmDeparture = watch('expectedFarmDepartureTime');
+  const watchedActualFarmDeparture = watch('actualFarmDepartureTime');
+  const watchedExpectedDepotArrival = watch('expectedDepotArrivalTime');
+  const watchedActualDepotArrival = watch('actualDepotArrivalTime');
+  const watchedExpectedDepotDeparture = watch('expectedDepotDepartureTime');
+  const watchedActualDepotDeparture = watch('actualDepotDepartureTime');
+
+  // Calculate differences
+  const farmArrivalDiff = calculateTimeDiff(watchedExpectedFarmArrival, watchedActualFarmArrival, watchedDispatchDate);
+  const farmDepartureDiff = calculateTimeDiff(watchedExpectedFarmDeparture, watchedActualFarmDeparture, watchedDispatchDate);
+  const depotArrivalDiff = calculateTimeDiff(watchedExpectedDepotArrival, watchedActualDepotArrival, watchedDispatchDate);
+  const depotDepartureDiff = calculateTimeDiff(watchedExpectedDepotDeparture, watchedActualDepotDeparture, watchedDispatchDate);
 
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'packaging',
+  });
+
+  const { fields: backloadFields, append: appendBackload, remove: removeBackload } = useFieldArray({
+    control,
+    name: 'backloadPackaging',
   });
 
   useEffect(() => {
@@ -72,6 +148,17 @@ function LoadForm() {
         const load = loadRes.data.load;
         const packaging = loadRes.data.packaging;
 
+        // Format timestamp to time string (HH:mm)
+        const formatTimeFromTimestamp = (timestamp) => {
+          if (!timestamp) return '';
+          try {
+            const date = new Date(timestamp);
+            return date.toTimeString().slice(0, 5);
+          } catch {
+            return '';
+          }
+        };
+
         reset({
           originSiteId: load.origin_site_id,
           destinationSiteId: load.destination_site_id,
@@ -83,6 +170,16 @@ function LoadForm() {
           vehicleId: load.vehicle_id || '',
           driverId: load.driver_id || '',
           notes: load.notes || '',
+          // Farm times
+          expectedFarmArrivalTime: load.expected_farm_arrival_time || DEFAULT_EXPECTED_FARM_ARRIVAL_TIME,
+          actualFarmArrivalTime: formatTimeFromTimestamp(load.actual_farm_arrival_time),
+          expectedFarmDepartureTime: load.expected_farm_departure_time || DEFAULT_EXPECTED_FARM_DEPARTURE_TIME,
+          actualFarmDepartureTime: formatTimeFromTimestamp(load.actual_farm_departure_time),
+          // Depot times
+          expectedDepotArrivalTime: load.estimated_arrival_time || '',
+          actualDepotArrivalTime: formatTimeFromTimestamp(load.arrived_depot_time),
+          expectedDepotDepartureTime: load.expected_depot_departure_time || '',
+          actualDepotDepartureTime: formatTimeFromTimestamp(load.departed_depot_time),
           packaging: packaging.map(p => ({
             packagingTypeId: p.packaging_type_id,
             quantity: p.quantity_dispatched,
@@ -90,6 +187,14 @@ function LoadForm() {
             productVarietyId: p.product_variety_id || '',
             notes: p.notes || '',
           })),
+          // Backload
+          backloadSiteId: load.backload_site_id || '',
+          backloadNotes: load.backload_notes || '',
+          backloadPackaging: loadRes.data.backloadPackaging?.map(bp => ({
+            packagingTypeId: bp.packaging_type_id,
+            quantity: bp.quantity_returned,
+            notes: bp.notes || '',
+          })) || [],
         });
       }
     } catch (error) {
@@ -103,6 +208,12 @@ function LoadForm() {
   const onSubmit = async (data) => {
     setSaving(true);
     try {
+      // Helper to convert time to ISO timestamp
+      const timeToTimestamp = (time, date) => {
+        if (!time || !date) return null;
+        return new Date(`${date}T${time}`).toISOString();
+      };
+
       if (isEdit) {
         await updateLoad(id, {
           destinationSiteId: data.destinationSiteId,
@@ -114,6 +225,20 @@ function LoadForm() {
           vehicleId: data.vehicleId || null,
           driverId: data.driverId || null,
           notes: data.notes || null,
+          // Farm times
+          expectedFarmArrivalTime: data.expectedFarmArrivalTime || null,
+          expectedFarmDepartureTime: data.expectedFarmDepartureTime || null,
+          // Depot times (expected)
+          expectedDepotArrivalTime: data.expectedDepotArrivalTime || null,
+          expectedDepotDepartureTime: data.expectedDepotDepartureTime || null,
+          // Backload
+          backloadSiteId: data.backloadSiteId || null,
+          backloadNotes: data.backloadNotes || null,
+          backloadPackaging: data.backloadPackaging?.map(bp => ({
+            packagingTypeId: bp.packagingTypeId,
+            quantityReturned: parseInt(bp.quantity) || 0,
+            notes: bp.notes || null,
+          })) || [],
         });
         toast.success('Load updated successfully');
         navigate(`/loads/${id}`);
@@ -129,6 +254,12 @@ function LoadForm() {
           vehicleId: data.vehicleId || null,
           driverId: data.driverId || null,
           notes: data.notes || null,
+          // Farm times
+          expectedFarmArrivalTime: data.expectedFarmArrivalTime || DEFAULT_EXPECTED_FARM_ARRIVAL_TIME,
+          expectedFarmDepartureTime: data.expectedFarmDepartureTime || DEFAULT_EXPECTED_FARM_DEPARTURE_TIME,
+          // Depot times (expected)
+          expectedDepotArrivalTime: data.expectedDepotArrivalTime || null,
+          expectedDepotDepartureTime: data.expectedDepotDepartureTime || null,
           packaging: data.packaging.map(p => ({
             packagingTypeId: p.packagingTypeId,
             quantity: parseInt(p.quantity),
@@ -136,6 +267,14 @@ function LoadForm() {
             productVarietyId: p.productVarietyId || null,
             notes: p.notes || null,
           })),
+          // Backload
+          backloadSiteId: data.backloadSiteId || null,
+          backloadNotes: data.backloadNotes || null,
+          backloadPackaging: data.backloadPackaging?.map(bp => ({
+            packagingTypeId: bp.packagingTypeId,
+            quantityReturned: parseInt(bp.quantity) || 0,
+            notes: bp.notes || null,
+          })) || [],
         });
         toast.success(`Load created: ${response.data.loadNumber}`);
         navigate(`/loads/${response.data.load.id}`);
@@ -236,7 +375,7 @@ function LoadForm() {
         <div className="card p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Schedule</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div>
               <label className="form-label">Dispatch Date *</label>
               <input
@@ -274,6 +413,139 @@ function LoadForm() {
                 className="form-input"
                 {...register('estimatedArrivalTime')}
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Farm Times */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <ClockIcon className="w-5 h-5 text-orange-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Farm Times</h2>
+            <span className="text-xs text-gray-500">(BV/CBC default: Arrival 14:00, Departure 17:00)</span>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Farm Arrival */}
+            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <h3 className="font-medium text-orange-800 mb-3">Arrival at Farm</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Expected Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('expectedFarmArrivalTime')}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Actual Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('actualFarmArrivalTime')}
+                  />
+                </div>
+              </div>
+              {farmArrivalDiff.diff !== null && (
+                <div className={`mt-3 p-2 rounded text-sm font-medium ${farmArrivalDiff.isOvertime ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  Difference: {formatDuration(farmArrivalDiff.diff)} {farmArrivalDiff.isOvertime && '⚠️ Overtime'}
+                </div>
+              )}
+            </div>
+
+            {/* Farm Departure */}
+            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <h3 className="font-medium text-orange-800 mb-3">Departure from Farm</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Expected Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('expectedFarmDepartureTime')}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Actual Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('actualFarmDepartureTime')}
+                  />
+                </div>
+              </div>
+              {farmDepartureDiff.diff !== null && (
+                <div className={`mt-3 p-2 rounded text-sm font-medium ${farmDepartureDiff.isOvertime ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  Difference: {formatDuration(farmDepartureDiff.diff)} {farmDepartureDiff.isOvertime && '⚠️ Overtime'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Depot Times */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <ClockIcon className="w-5 h-5 text-blue-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Depot Times</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Depot Arrival */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-medium text-blue-800 mb-3">Arrival at Depot</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Expected Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('expectedDepotArrivalTime')}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Actual Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('actualDepotArrivalTime')}
+                  />
+                </div>
+              </div>
+              {depotArrivalDiff.diff !== null && (
+                <div className={`mt-3 p-2 rounded text-sm font-medium ${depotArrivalDiff.isOvertime ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  Difference: {formatDuration(depotArrivalDiff.diff)} {depotArrivalDiff.isOvertime && '⚠️ Late'}
+                </div>
+              )}
+            </div>
+
+            {/* Depot Departure */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-medium text-blue-800 mb-3">Departure from Depot</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Expected Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('expectedDepotDepartureTime')}
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Actual Time</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    {...register('actualDepotDepartureTime')}
+                  />
+                </div>
+              </div>
+              {depotDepartureDiff.diff !== null && (
+                <div className={`mt-3 p-2 rounded text-sm font-medium ${depotDepartureDiff.isOvertime ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                  Difference: {formatDuration(depotDepartureDiff.diff)} {depotDepartureDiff.isOvertime && '⚠️ Late'}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -393,6 +665,109 @@ function LoadForm() {
             placeholder="Add any notes about this load..."
             {...register('notes')}
           ></textarea>
+        </div>
+
+        {/* Backload Section */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Backload (Return Trip)</h2>
+              <p className="text-sm text-gray-500">Packaging to be returned from the farm</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="form-label">Return From Site (Farm)</label>
+              <select className="form-select" {...register('backloadSiteId')}>
+                <option value="">No backload</option>
+                {farms.map(site => (
+                  <option key={site.id} value={site.id}>
+                    {site.name} ({site.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Backload Notes</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Notes about the return packaging..."
+                {...register('backloadNotes')}
+              />
+            </div>
+          </div>
+
+          {/* Backload Packaging Items */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="form-label mb-0">Packaging Being Returned</label>
+              <button
+                type="button"
+                onClick={() => appendBackload({ packagingTypeId: '', quantity: 1, notes: '' })}
+                className="btn btn-secondary btn-sm"
+              >
+                <PlusIcon className="w-4 h-4 mr-1" />
+                Add Item
+              </button>
+            </div>
+
+            {backloadFields.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">No backload packaging items. Click "Add Item" to add packaging being returned.</p>
+            ) : (
+              <div className="space-y-3">
+                {backloadFields.map((field, index) => (
+                  <div key={field.id} className="flex gap-4 items-start p-3 bg-orange-50 rounded-lg border border-orange-100">
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="form-label text-xs">Packaging Type</label>
+                        <select
+                          className="form-select"
+                          {...register(`backloadPackaging.${index}.packagingTypeId`, { required: true })}
+                        >
+                          <option value="">Select type...</option>
+                          {packagingTypes.map(type => (
+                            <option key={type.id} value={type.id}>
+                              {type.name} ({type.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="form-label text-xs">Quantity</label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-input"
+                          {...register(`backloadPackaging.${index}.quantity`, { required: true, min: 1 })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="form-label text-xs">Notes</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g., condition..."
+                          {...register(`backloadPackaging.${index}.notes`)}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeBackload(index)}
+                      className="mt-6 p-2 text-red-500 hover:bg-red-50 rounded"
+                    >
+                      <TrashIcon className="w-5 h-5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Actions */}

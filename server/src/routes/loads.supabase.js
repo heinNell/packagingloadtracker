@@ -56,11 +56,16 @@ router.get('/', authenticate, async (req, res, next) => {
         *,
         origin_site:sites!loads_origin_site_id_fkey (id, code, name),
         destination_site:sites!loads_destination_site_id_fkey (id, code, name),
+        backload_site:sites!loads_backload_site_id_fkey (id, code, name),
         vehicles (id, name, registration),
         drivers (id, first_name, last_name),
         channels (id, name),
         load_packaging (
           id, packaging_type_id, quantity_dispatched, quantity_received, quantity_damaged, quantity_missing,
+          packaging_types (id, code, name)
+        ),
+        backload_packaging (
+          id, packaging_type_id, quantity_returned, quantity_damaged,
           packaging_types (id, code, name)
         )
       `, { count: 'exact' })
@@ -89,6 +94,8 @@ router.get('/', authenticate, async (req, res, next) => {
       origin_site_code: l.origin_site?.code,
       destination_site_name: l.destination_site?.name,
       destination_site_code: l.destination_site?.code,
+      backload_site_name: l.backload_site?.name,
+      backload_site_code: l.backload_site?.code,
       vehicle_name: l.vehicles?.name,
       vehicle_registration: l.vehicles?.registration,
       driver_name: l.drivers ? `${l.drivers.first_name} ${l.drivers.last_name}` : null,
@@ -97,10 +104,19 @@ router.get('/', authenticate, async (req, res, next) => {
         id: lp.id,
         packaging_type_id: lp.packaging_type_id,
         packaging_type_name: lp.packaging_types?.name,
+        packaging_type_code: lp.packaging_types?.code,
         quantity_dispatched: lp.quantity_dispatched,
         quantity_received: lp.quantity_received,
         quantity_damaged: lp.quantity_damaged,
         quantity_missing: lp.quantity_missing
+      })),
+      backload_packaging: l.backload_packaging?.map(bp => ({
+        id: bp.id,
+        packaging_type_id: bp.packaging_type_id,
+        packaging_type_name: bp.packaging_types?.name,
+        packaging_type_code: bp.packaging_types?.code,
+        quantity_returned: bp.quantity_returned,
+        quantity_damaged: bp.quantity_damaged
       }))
     }));
 
@@ -118,6 +134,81 @@ router.get('/', authenticate, async (req, res, next) => {
 });
 
 /**
+ * GET /api/loads/tracking/active
+ * Get active loads with vehicle telematics info for live tracking overlay
+ */
+router.get('/tracking/active', authenticate, async (req, res, next) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    
+    const { data, error } = await supabase
+      .from('loads')
+      .select(`
+        id,
+        load_number,
+        dispatch_date,
+        status,
+        expected_farm_arrival_time,
+        actual_farm_arrival_time,
+        expected_depot_arrival_time,
+        actual_depot_arrival_time,
+        origin_site:sites!loads_origin_site_id_fkey (id, code, name, latitude, longitude),
+        destination_site:sites!loads_destination_site_id_fkey (id, code, name, latitude, longitude),
+        vehicles (id, name, registration, telematics_asset_id, telematics_asset_code),
+        drivers (id, first_name, last_name, phone)
+      `)
+      .in('status', ['scheduled', 'loading', 'departed', 'in_transit', 'arrived_depot'])
+      .gte('dispatch_date', yesterday)
+      .lte('dispatch_date', today)
+      .order('dispatch_date', { ascending: false });
+
+    if (error) throw error;
+
+    const activeLoads = data.map(l => ({
+      loadId: l.id,
+      loadNumber: l.load_number,
+      dispatchDate: l.dispatch_date,
+      status: l.status,
+      expectedFarmArrival: l.expected_farm_arrival_time,
+      actualFarmArrival: l.actual_farm_arrival_time,
+      expectedDepotArrival: l.expected_depot_arrival_time,
+      actualDepotArrival: l.actual_depot_arrival_time,
+      origin: l.origin_site ? {
+        id: l.origin_site.id,
+        code: l.origin_site.code,
+        name: l.origin_site.name,
+        latitude: l.origin_site.latitude,
+        longitude: l.origin_site.longitude
+      } : null,
+      destination: l.destination_site ? {
+        id: l.destination_site.id,
+        code: l.destination_site.code,
+        name: l.destination_site.name,
+        latitude: l.destination_site.latitude,
+        longitude: l.destination_site.longitude
+      } : null,
+      vehicle: l.vehicles ? {
+        id: l.vehicles.id,
+        name: l.vehicles.name,
+        registration: l.vehicles.registration,
+        telematicsAssetId: l.vehicles.telematics_asset_id,
+        telematicsAssetCode: l.vehicles.telematics_asset_code
+      } : null,
+      driver: l.drivers ? {
+        id: l.drivers.id,
+        name: `${l.drivers.first_name} ${l.drivers.last_name}`,
+        phone: l.drivers.phone
+      } : null
+    }));
+
+    res.json({ activeLoads });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/loads/:id
  * Get single load by ID
  */
@@ -129,6 +220,8 @@ router.get('/:id', authenticate, async (req, res, next) => {
         *,
         origin_site:sites!loads_origin_site_id_fkey (id, code, name),
         destination_site:sites!loads_destination_site_id_fkey (id, code, name),
+        backload_site:sites!loads_backload_site_id_fkey (id, code, name),
+        linked_load:loads!loads_linked_load_id_fkey (id, load_number),
         vehicles (id, name, registration),
         drivers (id, first_name, last_name),
         channels (id, name),
@@ -160,12 +253,27 @@ router.get('/:id', authenticate, async (req, res, next) => {
 
     if (packError) throw packError;
 
+    // Get backload packaging details
+    const { data: backloadPackaging, error: backloadError } = await supabase
+      .from('backload_packaging')
+      .select(`
+        *,
+        packaging_types (id, code, name)
+      `)
+      .eq('load_id', req.params.id);
+
+    if (backloadError) throw backloadError;
+
     const formattedLoad = {
       ...load,
       origin_site_name: load.origin_site?.name,
       origin_site_code: load.origin_site?.code,
       destination_site_name: load.destination_site?.name,
       destination_site_code: load.destination_site?.code,
+      backload_site_name: load.backload_site?.name,
+      backload_site_code: load.backload_site?.code,
+      linked_load_number: load.linked_load?.load_number,
+      linked_load_id: load.linked_load?.id,
       vehicle_name: load.vehicles?.name,
       vehicle_registration: load.vehicles?.registration,
       driver_name: load.drivers ? `${load.drivers.first_name} ${load.drivers.last_name}` : null,
@@ -184,9 +292,16 @@ router.get('/:id', authenticate, async (req, res, next) => {
       product_grade_name: p.product_grades?.name
     }));
 
+    const formattedBackloadPackaging = backloadPackaging.map(bp => ({
+      ...bp,
+      packaging_type_name: bp.packaging_types?.name,
+      packaging_type_code: bp.packaging_types?.code
+    }));
+
     res.json({ 
       load: formattedLoad,
-      packaging: formattedPackaging
+      packaging: formattedPackaging,
+      backloadPackaging: formattedBackloadPackaging
     });
   } catch (error) {
     next(error);
@@ -212,7 +327,10 @@ router.post('/', authenticate, authorize('admin', 'dispatcher', 'farm_user'), [
     const { 
       originSiteId, destinationSiteId, channelId, vehicleId, driverId,
       dispatchDate, scheduledDepartureTime, estimatedArrivalTime,
-      notes, packaging
+      expectedFarmArrivalTime, expectedFarmDepartureTime,
+      expectedDepotArrivalTime, expectedDepotDepartureTime,
+      backloadSiteId, backloadNotes, linkedLoadId,
+      notes, packaging, backloadPackaging
     } = req.body;
 
     // Get origin site code for load number
@@ -239,6 +357,16 @@ router.post('/', authenticate, authorize('admin', 'dispatcher', 'farm_user'), [
         dispatch_date: dispatchDate,
         scheduled_departure_time: scheduledDepartureTime || null,
         estimated_arrival_time: estimatedArrivalTime || null,
+        // Farm times (default to 14:00 and 17:00 for BV/CBC)
+        expected_farm_arrival_time: expectedFarmArrivalTime || '14:00',
+        expected_farm_departure_time: expectedFarmDepartureTime || '17:00',
+        // Depot times
+        expected_depot_arrival_time: expectedDepotArrivalTime || null,
+        expected_depot_departure_time: expectedDepotDepartureTime || null,
+        // Backload info
+        backload_site_id: backloadSiteId || null,
+        backload_notes: backloadNotes || null,
+        linked_load_id: linkedLoadId || null,
         notes,
         status: 'scheduled',
         created_by: req.user?.id || null
@@ -266,6 +394,23 @@ router.post('/', authenticate, authorize('admin', 'dispatcher', 'farm_user'), [
 
     if (packError) throw packError;
 
+    // Insert backload packaging items if provided
+    if (backloadPackaging && backloadPackaging.length > 0) {
+      const backloadItems = backloadPackaging.map(bp => ({
+        load_id: load.id,
+        packaging_type_id: bp.packagingTypeId,
+        quantity_returned: bp.quantityReturned || bp.quantity || 0,
+        quantity_damaged: bp.quantityDamaged || 0,
+        notes: bp.notes || null
+      }));
+
+      const { error: backloadError } = await supabase
+        .from('backload_packaging')
+        .insert(backloadItems);
+
+      if (backloadError) throw backloadError;
+    }
+
     res.status(201).json({ load, loadNumber });
   } catch (error) {
     next(error);
@@ -281,7 +426,10 @@ router.put('/:id', authenticate, authorize('admin', 'dispatcher', 'farm_user'), 
     const { 
       originSiteId, destinationSiteId, channelId, vehicleId, driverId,
       dispatchDate, scheduledDepartureTime, estimatedArrivalTime,
-      notes, status
+      expectedFarmArrivalTime, expectedFarmDepartureTime,
+      expectedDepotArrivalTime, expectedDepotDepartureTime,
+      backloadSiteId, backloadNotes, linkedLoadId,
+      notes, status, backloadPackaging
     } = req.body;
 
     const updateData = { updated_at: new Date().toISOString() };
@@ -295,6 +443,16 @@ router.put('/:id', authenticate, authorize('admin', 'dispatcher', 'farm_user'), 
     if (estimatedArrivalTime !== undefined) updateData.estimated_arrival_time = estimatedArrivalTime;
     if (notes !== undefined) updateData.notes = notes;
     if (status !== undefined) updateData.status = status;
+    // Farm times
+    if (expectedFarmArrivalTime !== undefined) updateData.expected_farm_arrival_time = expectedFarmArrivalTime;
+    if (expectedFarmDepartureTime !== undefined) updateData.expected_farm_departure_time = expectedFarmDepartureTime;
+    // Depot times
+    if (expectedDepotArrivalTime !== undefined) updateData.expected_depot_arrival_time = expectedDepotArrivalTime;
+    if (expectedDepotDepartureTime !== undefined) updateData.expected_depot_departure_time = expectedDepotDepartureTime;
+    // Backload info
+    if (backloadSiteId !== undefined) updateData.backload_site_id = backloadSiteId || null;
+    if (backloadNotes !== undefined) updateData.backload_notes = backloadNotes;
+    if (linkedLoadId !== undefined) updateData.linked_load_id = linkedLoadId || null;
 
     const { data, error } = await supabase
       .from('loads')
@@ -308,6 +466,32 @@ router.put('/:id', authenticate, authorize('admin', 'dispatcher', 'farm_user'), 
         return res.status(404).json({ error: { message: 'Load not found' } });
       }
       throw error;
+    }
+
+    // Update backload packaging if provided
+    if (backloadPackaging !== undefined) {
+      // Delete existing backload packaging
+      await supabase
+        .from('backload_packaging')
+        .delete()
+        .eq('load_id', req.params.id);
+
+      // Insert new backload packaging
+      if (backloadPackaging && backloadPackaging.length > 0) {
+        const backloadItems = backloadPackaging.map(bp => ({
+          load_id: req.params.id,
+          packaging_type_id: bp.packagingTypeId,
+          quantity_returned: bp.quantityReturned || bp.quantity || 0,
+          quantity_damaged: bp.quantityDamaged || 0,
+          notes: bp.notes || null
+        }));
+
+        const { error: backloadError } = await supabase
+          .from('backload_packaging')
+          .insert(backloadItems);
+
+        if (backloadError) throw backloadError;
+      }
     }
 
     res.json({ load: data });
@@ -370,6 +554,68 @@ router.post('/:id/confirm-dispatch', authenticate, authorize('admin', 'dispatche
         return res.status(404).json({ error: { message: 'Load not found' } });
       }
       throw error;
+    }
+
+    // Update inventory - deduct from origin site
+    const { data: packaging } = await supabase
+      .from('load_packaging')
+      .select('packaging_type_id, quantity_dispatched')
+      .eq('load_id', req.params.id);
+
+    if (packaging && packaging.length > 0) {
+      for (const pkg of packaging) {
+        // Upsert inventory (deduct quantity)
+        await supabase.rpc('update_inventory_on_dispatch', {
+          p_load_id: req.params.id,
+          p_site_id: data.origin_site_id,
+          p_packaging_type_id: pkg.packaging_type_id,
+          p_quantity: pkg.quantity_dispatched,
+          p_recorded_by: req.user?.id || null
+        }).catch(async () => {
+          // Fallback if RPC doesn't exist - manual update
+          const { data: existing } = await supabase
+            .from('site_packaging_inventory')
+            .select('*')
+            .eq('site_id', data.origin_site_id)
+            .eq('packaging_type_id', pkg.packaging_type_id)
+            .single();
+
+          if (existing) {
+            await supabase
+              .from('site_packaging_inventory')
+              .update({
+                quantity: existing.quantity - pkg.quantity_dispatched,
+                handling_count: (existing.handling_count || 0) + 1,
+                total_dispatched: (existing.total_dispatched || 0) + pkg.quantity_dispatched,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id);
+          } else {
+            await supabase
+              .from('site_packaging_inventory')
+              .insert({
+                site_id: data.origin_site_id,
+                packaging_type_id: pkg.packaging_type_id,
+                quantity: -pkg.quantity_dispatched,
+                handling_count: 1,
+                total_dispatched: pkg.quantity_dispatched
+              });
+          }
+
+          // Record movement
+          await supabase
+            .from('packaging_movements')
+            .insert({
+              movement_type: 'dispatch',
+              load_id: req.params.id,
+              site_id: data.origin_site_id,
+              packaging_type_id: pkg.packaging_type_id,
+              quantity: pkg.quantity_dispatched,
+              direction: 'out',
+              recorded_by: req.user?.id || null
+            });
+        });
+      }
     }
 
     res.json({ load: data });
@@ -452,6 +698,122 @@ router.post('/:id/confirm-receipt', authenticate, authorize('admin', 'dispatcher
       .single();
 
     if (updateLoadError) throw updateLoadError;
+
+    // Update inventory - add to destination site
+    for (const p of packaging) {
+      const quantityToAdd = p.quantityReceived || 0;
+      if (quantityToAdd > 0) {
+        // Get packaging type id from load_packaging
+        const { data: pkgData } = await supabase
+          .from('load_packaging')
+          .select('packaging_type_id')
+          .eq('id', p.id)
+          .single();
+
+        if (pkgData) {
+          const { data: existing } = await supabase
+            .from('site_packaging_inventory')
+            .select('*')
+            .eq('site_id', load.destination_site_id)
+            .eq('packaging_type_id', pkgData.packaging_type_id)
+            .single();
+
+          if (existing) {
+            await supabase
+              .from('site_packaging_inventory')
+              .update({
+                quantity: existing.quantity + quantityToAdd,
+                quantity_damaged: (existing.quantity_damaged || 0) + (p.quantityDamaged || 0),
+                handling_count: (existing.handling_count || 0) + 1,
+                total_received: (existing.total_received || 0) + quantityToAdd,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existing.id);
+          } else {
+            await supabase
+              .from('site_packaging_inventory')
+              .insert({
+                site_id: load.destination_site_id,
+                packaging_type_id: pkgData.packaging_type_id,
+                quantity: quantityToAdd,
+                quantity_damaged: p.quantityDamaged || 0,
+                handling_count: 1,
+                total_received: quantityToAdd
+              });
+          }
+
+          // Record movement
+          await supabase
+            .from('packaging_movements')
+            .insert({
+              movement_type: 'receipt',
+              load_id: req.params.id,
+              site_id: load.destination_site_id,
+              packaging_type_id: pkgData.packaging_type_id,
+              quantity: quantityToAdd,
+              quantity_damaged: p.quantityDamaged || 0,
+              direction: 'in',
+              recorded_by: req.user?.id || null
+            });
+        }
+      }
+    }
+
+    // Handle backload packaging returns if applicable
+    if (load.backload_site_id) {
+      const { data: backloadPkg } = await supabase
+        .from('backload_packaging')
+        .select('packaging_type_id, quantity_returned')
+        .eq('load_id', req.params.id);
+
+      if (backloadPkg && backloadPkg.length > 0) {
+        for (const bp of backloadPkg) {
+          if (bp.quantity_returned > 0) {
+            const { data: existing } = await supabase
+              .from('site_packaging_inventory')
+              .select('*')
+              .eq('site_id', load.backload_site_id)
+              .eq('packaging_type_id', bp.packaging_type_id)
+              .single();
+
+            if (existing) {
+              await supabase
+                .from('site_packaging_inventory')
+                .update({
+                  quantity: existing.quantity + bp.quantity_returned,
+                  handling_count: (existing.handling_count || 0) + 1,
+                  total_returned: (existing.total_returned || 0) + bp.quantity_returned,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', existing.id);
+            } else {
+              await supabase
+                .from('site_packaging_inventory')
+                .insert({
+                  site_id: load.backload_site_id,
+                  packaging_type_id: bp.packaging_type_id,
+                  quantity: bp.quantity_returned,
+                  handling_count: 1,
+                  total_returned: bp.quantity_returned
+                });
+            }
+
+            // Record movement
+            await supabase
+              .from('packaging_movements')
+              .insert({
+                movement_type: 'backload_return',
+                load_id: req.params.id,
+                site_id: load.backload_site_id,
+                packaging_type_id: bp.packaging_type_id,
+                quantity: bp.quantity_returned,
+                direction: 'in',
+                recorded_by: req.user?.id || null
+              });
+          }
+        }
+      }
+    }
 
     res.json({ load: updatedLoad, hasDiscrepancy });
   } catch (error) {

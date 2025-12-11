@@ -122,6 +122,12 @@ export const updateSite = (siteId, siteData) =>
   api.put(`/sites/${siteId}`, siteData);
 
 /**
+ * Get all sites inventory summary
+ */
+export const getAllSitesInventory = () => 
+  api.get('/sites/inventory/all');
+
+/**
  * @param {string} siteId 
  */
 export const getSiteInventory = (siteId) => 
@@ -134,6 +140,22 @@ export const getSiteInventory = (siteId) =>
  */
 export const updateSiteInventory = (siteId, packagingTypeId, data) => 
   api.put(`/sites/${siteId}/inventory/${packagingTypeId}`, data);
+
+/**
+ * Adjust inventory for a site
+ * @param {string} siteId 
+ * @param {object} data - { packagingTypeId, quantity, adjustmentType, notes }
+ */
+export const adjustSiteInventory = (siteId, data) => 
+  api.post(`/sites/${siteId}/inventory/adjust`, data);
+
+/**
+ * Get packaging movements for a site
+ * @param {string} siteId 
+ * @param {object} params 
+ */
+export const getSiteMovements = (siteId, params) => 
+  api.get(`/sites/${siteId}/movements`, { params });
 
 // =====================================================
 // PACKAGING API
@@ -158,6 +180,12 @@ export const createPackagingType = (data) =>
 export const updatePackagingType = (id, data) => 
   api.put(`/packaging/types/${id}`, data);
 
+/**
+ * @param {string} id 
+ */
+export const deletePackagingType = (id) => 
+  api.delete(`/packaging/types/${id}`);
+
 export const getPackagingInTransit = () => 
   api.get('/packaging/in-transit');
 
@@ -176,6 +204,12 @@ export const getGrades = () =>
 // =====================================================
 // LOADS API
 // =====================================================
+
+/**
+ * Get active loads with vehicle telematics info for live tracking
+ */
+export const getActiveLoadsForTracking = () => 
+  api.get('/loads/tracking/active');
 
 /**
  * @param {object} params 
@@ -344,6 +378,12 @@ export const createVehicle = (data) =>
 export const updateVehicle = (id, data) => 
   api.put(`/config/vehicles/${id}`, data);
 
+/**
+ * @param {string} id 
+ */
+export const deleteVehicle = (id) => 
+  api.delete(`/config/vehicles/${id}`);
+
 export const getConfigDrivers = () => 
   api.get('/config/drivers');
 
@@ -359,6 +399,12 @@ export const createDriver = (data) =>
  */
 export const updateDriver = (id, data) => 
   api.put(`/config/drivers/${id}`, data);
+
+/**
+ * @param {string} id 
+ */
+export const deleteDriver = (id) => 
+  api.delete(`/config/drivers/${id}`);
 
 export const getThresholds = () => 
   api.get('/config/thresholds');

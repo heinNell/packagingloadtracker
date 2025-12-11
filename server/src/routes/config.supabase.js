@@ -331,6 +331,108 @@ router.put('/drivers/:id', authenticate, authorize('admin'), async (req, res, ne
   }
 });
 
+/**
+ * DELETE /api/config/drivers/:id
+ * Delete a driver (soft delete if used in loads)
+ */
+router.delete('/drivers/:id', authenticate, authorize('admin'), async (req, res, next) => {
+  try {
+    // Check if driver is used in any loads
+    const { data: usedInLoads } = await supabase
+      .from('loads')
+      .select('id')
+      .eq('driver_id', req.params.id)
+      .limit(1);
+
+    if (usedInLoads && usedInLoads.length > 0) {
+      // Soft delete - just deactivate
+      const { data, error } = await supabase
+        .from('drivers')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: { message: 'Driver not found' } });
+        }
+        throw error;
+      }
+
+      return res.json({ message: 'Driver deactivated (assigned to loads)', driver: data });
+    }
+
+    // Hard delete if not used
+    const { error } = await supabase
+      .from('drivers')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: { message: 'Driver not found' } });
+      }
+      throw error;
+    }
+
+    res.json({ message: 'Driver deleted' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * DELETE /api/config/vehicles/:id
+ * Delete a vehicle (soft delete if used in loads)
+ */
+router.delete('/vehicles/:id', authenticate, authorize('admin'), async (req, res, next) => {
+  try {
+    // Check if vehicle is used in any loads
+    const { data: usedInLoads } = await supabase
+      .from('loads')
+      .select('id')
+      .eq('vehicle_id', req.params.id)
+      .limit(1);
+
+    if (usedInLoads && usedInLoads.length > 0) {
+      // Soft delete - just deactivate
+      const { data, error } = await supabase
+        .from('vehicles')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: { message: 'Vehicle not found' } });
+        }
+        throw error;
+      }
+
+      return res.json({ message: 'Vehicle deactivated (assigned to loads)', vehicle: data });
+    }
+
+    // Hard delete if not used
+    const { error } = await supabase
+      .from('vehicles')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: { message: 'Vehicle not found' } });
+      }
+      throw error;
+    }
+
+    res.json({ message: 'Vehicle deleted' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // =====================================================
 // CHANNEL MANAGEMENT
 // =====================================================

@@ -1,11 +1,14 @@
 import {
   ArrowLeftIcon,
+  BuildingOffice2Icon,
+  CalendarDaysIcon,
   CheckCircleIcon,
   ClockIcon,
   DocumentDuplicateIcon,
   ExclamationTriangleIcon,
   MapPinIcon,
   PencilIcon,
+  TagIcon,
   TrashIcon,
   TruckIcon,
   UserIcon
@@ -15,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { deleteLoad, dispatchLoad, duplicateLoad, getLoad, receiveLoad } from '../lib/api';
+import { confirmFarmArrival, confirmFarmDeparture, deleteLoad, dispatchLoad, duplicateLoad, getLoad, receiveLoad } from '../lib/api';
 
 /** Default expected farm times for BV and CBC farms */
 const EXPECTED_FARM_ARRIVAL_TIME = '14:00';
@@ -27,6 +30,22 @@ const EXPECTED_FARM_DEPARTURE_TIME = '17:00';
  * @returns {string}
  */
 function formatDuration(minutes) {
+  if (minutes === null || minutes === undefined || isNaN(minutes)) return '-';
+  const absMinutes = Math.abs(minutes);
+  const hours = Math.floor(absMinutes / 60);
+  const mins = absMinutes % 60;
+  const sign = minutes < 0 ? '-' : '+';
+  if (hours === 0) return `${sign}${mins}m`;
+  if (mins === 0) return `${sign}${hours}h`;
+  return `${sign}${hours}h ${mins}m`;
+}
+
+/**
+ * Format duration for display (positive only)
+ * @param {number} minutes
+ * @returns {string}
+ */
+function formatDurationPositive(minutes) {
   if (!minutes || minutes < 0) return '-';
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
@@ -69,8 +88,8 @@ function OnTimeStatusBadge({ status, diff }) {
   
   const config = {
     on_time: { label: 'On Time', class: 'bg-green-100 text-green-700' },
-    delayed: { label: `Delayed ${formatDuration(diff)}`, class: 'bg-red-100 text-red-700' },
-    early: { label: `Early ${formatDuration(diff)}`, class: 'bg-blue-100 text-blue-700' },
+    delayed: { label: `Delayed ${formatDurationPositive(diff)}`, class: 'bg-red-100 text-red-700' },
+    early: { label: `Early ${formatDurationPositive(diff)}`, class: 'bg-blue-100 text-blue-700' },
   };
   
   const c = config[status];
@@ -100,7 +119,7 @@ function OvertimeStatusBadge({ overtimeMinutes, label }) {
   
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-      ⚠️ {label || 'Overtime'} +{formatDuration(overtimeMinutes)}
+      ⚠️ {label || 'Overtime'} +{formatDurationPositive(overtimeMinutes)}
     </span>
   );
 }
@@ -261,15 +280,15 @@ function LoadTimeline({ load }) {
       {/* Duration Summary */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{formatDuration(farmLoadingDuration)}</div>
+          <div className="text-2xl font-bold text-gray-900">{formatDurationPositive(farmLoadingDuration)}</div>
           <div className="text-xs text-gray-500">At Farm</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{formatDuration(transitDuration)}</div>
+          <div className="text-2xl font-bold text-gray-900">{formatDurationPositive(transitDuration)}</div>
           <div className="text-xs text-gray-500">Transit Time</div>
         </div>
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{formatDuration(depotDuration)}</div>
+          <div className="text-2xl font-bold text-gray-900">{formatDurationPositive(depotDuration)}</div>
           <div className="text-xs text-gray-500">At Depot</div>
         </div>
         <div className="text-center">
@@ -367,6 +386,7 @@ function LoadDetail() {
   const navigate = useNavigate();
   const [load, setLoad] = useState(null);
   const [packaging, setPackaging] = useState([]);
+  const [backloadPackaging, setBackloadPackaging] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [showReceiveModal, setShowReceiveModal] = useState(false);
@@ -383,6 +403,7 @@ function LoadDetail() {
       const response = await getLoad(id);
       setLoad(response.data.load);
       setPackaging(response.data.packaging);
+      setBackloadPackaging(response.data.backloadPackaging || []);
     } catch (error) {
       toast.error('Failed to load details');
       navigate('/loads');
@@ -607,6 +628,10 @@ function LoadDetail() {
 
       {/* Route Info */}
       <div className="card p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <MapPinIcon className="w-5 h-5 text-gray-600" />
+          <h2 className="text-lg font-semibold text-gray-900">Route Details</h2>
+        </div>
         <div className="flex flex-col md:flex-row md:items-center gap-6">
           <div className="flex-1">
             <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
@@ -637,54 +662,276 @@ function LoadDetail() {
           </div>
         </div>
 
-        {/* Timing */}
-        <div className="mt-6 pt-6 border-t border-gray-200 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
-              <ClockIcon className="w-4 h-4" />
-              Dispatch Date
-            </div>
-            <p className="font-medium">{format(new Date(load.dispatch_date), 'MMM d, yyyy')}</p>
-            {load.scheduled_departure_time && (
-              <p className="text-sm text-gray-500">Scheduled: {load.scheduled_departure_time}</p>
-            )}
+        {load.channel_name && (
+          <div className="mt-4 pt-4 border-t border-gray-200 flex items-center gap-2">
+            <TagIcon className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-500">Channel:</span>
+            <span className="font-medium text-gray-900">{load.channel_name}</span>
           </div>
-          <div>
-            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
-              <ClockIcon className="w-4 h-4" />
-              Expected Arrival
-            </div>
-            <p className="font-medium">
-              {load.expected_arrival_date 
-                ? format(new Date(load.expected_arrival_date), 'MMM d, yyyy')
-                : '-'}
-            </p>
-            {load.estimated_arrival_time && (
-              <p className="text-sm text-gray-500">ETA: {load.estimated_arrival_time}</p>
-            )}
+        )}
+      </div>
+
+      {/* Schedule & Transport Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Schedule */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarDaysIcon className="w-5 h-5 text-gray-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Schedule</h2>
           </div>
-          <div>
-            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
-              <TruckIcon className="w-4 h-4" />
-              Vehicle
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                <ClockIcon className="w-4 h-4" />
+                Dispatch Date
+              </div>
+              <p className="font-semibold text-gray-900">{format(new Date(load.dispatch_date), 'MMM d, yyyy')}</p>
+              {load.scheduled_departure_time && (
+                <p className="text-sm text-gray-500 mt-1">Scheduled: {load.scheduled_departure_time}</p>
+              )}
             </div>
-            <p className="font-medium">{load.vehicle_name || '-'}</p>
-          </div>
-          <div>
-            <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
-              <UserIcon className="w-4 h-4" />
-              Driver
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                <ClockIcon className="w-4 h-4" />
+                Expected Arrival
+              </div>
+              <p className="font-semibold text-gray-900">
+                {load.expected_arrival_date 
+                  ? format(new Date(load.expected_arrival_date), 'MMM d, yyyy')
+                  : '-'}
+              </p>
+              {load.estimated_arrival_time && (
+                <p className="text-sm text-gray-500 mt-1">ETA: {load.estimated_arrival_time}</p>
+              )}
             </div>
-            <p className="font-medium">{load.driver_name || '-'}</p>
           </div>
         </div>
 
-        {load.channel_name && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <span className="text-sm text-gray-500">Channel: </span>
-            <span className="font-medium">{load.channel_name}</span>
+        {/* Transport */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <TruckIcon className="w-5 h-5 text-gray-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Transport</h2>
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                <TruckIcon className="w-4 h-4" />
+                Vehicle
+              </div>
+              <p className="font-semibold text-gray-900">{load.vehicle_name || '-'}</p>
+              {load.vehicle_registration && (
+                <p className="text-sm text-gray-500 mt-1">{load.vehicle_registration}</p>
+              )}
+            </div>
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+                <UserIcon className="w-4 h-4" />
+                Driver
+              </div>
+              <p className="font-semibold text-gray-900">{load.driver_name || '-'}</p>
+              {load.driver_phone && (
+                <p className="text-sm text-gray-500 mt-1">{load.driver_phone}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Farm & Depot Times Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Farm Times */}
+        <div className="card p-6 border-l-4 border-l-orange-400">
+          <div className="flex items-center gap-2 mb-4">
+            <ClockIcon className="w-5 h-5 text-orange-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Farm Times</h2>
+            <span className="text-xs text-gray-400 ml-auto">(Default: Arrival 14:00, Departure 17:00)</span>
+          </div>
+          
+          <div className="space-y-4">
+            {/* Farm Arrival */}
+            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-orange-800">Arrival at Farm</h3>
+                {load.actual_farm_arrival_time && (
+                  load.farm_arrival_overtime_minutes > 0 ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                      ⚠️ Overtime {formatDuration(load.farm_arrival_overtime_minutes)}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                      ✓ On Time
+                    </span>
+                  )
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">Expected</span>
+                  <span className="font-semibold text-gray-900">{load.expected_farm_arrival_time || EXPECTED_FARM_ARRIVAL_TIME}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Actual</span>
+                  <span className="font-semibold text-gray-900">
+                    {load.actual_farm_arrival_time 
+                      ? format(new Date(load.actual_farm_arrival_time), 'HH:mm')
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Difference</span>
+                  <span className={`font-semibold ${load.farm_arrival_overtime_minutes > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {load.actual_farm_arrival_time ? formatDuration(load.farm_arrival_overtime_minutes || 0) : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Farm Departure */}
+            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-orange-800">Departure from Farm</h3>
+                {load.actual_farm_departure_time && (
+                  load.farm_departure_overtime_minutes > 0 ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                      ⚠️ Overtime {formatDuration(load.farm_departure_overtime_minutes)}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                      ✓ On Time
+                    </span>
+                  )
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">Expected</span>
+                  <span className="font-semibold text-gray-900">{load.expected_farm_departure_time || EXPECTED_FARM_DEPARTURE_TIME}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Actual</span>
+                  <span className="font-semibold text-gray-900">
+                    {load.actual_farm_departure_time 
+                      ? format(new Date(load.actual_farm_departure_time), 'HH:mm')
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Difference</span>
+                  <span className={`font-semibold ${load.farm_departure_overtime_minutes > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {load.actual_farm_departure_time ? formatDuration(load.farm_departure_overtime_minutes || 0) : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Depot Times */}
+        <div className="card p-6 border-l-4 border-l-blue-400">
+          <div className="flex items-center gap-2 mb-4">
+            <BuildingOffice2Icon className="w-5 h-5 text-blue-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Depot Times</h2>
+          </div>
+          
+          <div className="space-y-4">
+            {/* Depot Arrival */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-blue-800">Arrival at Depot</h3>
+                {load.arrived_depot_time && load.estimated_arrival_time && (
+                  (() => {
+                    const expected = new Date(`${load.dispatch_date}T${load.estimated_arrival_time}`);
+                    const actual = new Date(load.arrived_depot_time);
+                    const diff = differenceInMinutes(actual, expected);
+                    return diff > 5 ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                        ⚠️ Late {formatDuration(diff)}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                        ✓ On Time
+                      </span>
+                    );
+                  })()
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">Expected</span>
+                  <span className="font-semibold text-gray-900">{load.estimated_arrival_time || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Actual</span>
+                  <span className="font-semibold text-gray-900">
+                    {load.arrived_depot_time 
+                      ? format(new Date(load.arrived_depot_time), 'HH:mm')
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Difference</span>
+                  <span className="font-semibold text-gray-600">
+                    {load.arrived_depot_time && load.estimated_arrival_time
+                      ? formatDuration(differenceInMinutes(
+                          new Date(load.arrived_depot_time),
+                          new Date(`${load.dispatch_date}T${load.estimated_arrival_time}`)
+                        ))
+                      : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Depot Departure */}
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-blue-800">Departure from Depot</h3>
+                {load.departed_depot_time && load.expected_depot_departure_time && (
+                  (() => {
+                    const expected = new Date(`${load.dispatch_date}T${load.expected_depot_departure_time}`);
+                    const actual = new Date(load.departed_depot_time);
+                    const diff = differenceInMinutes(actual, expected);
+                    return diff > 5 ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                        ⚠️ Late {formatDuration(diff)}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                        ✓ On Time
+                      </span>
+                    );
+                  })()
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">Expected</span>
+                  <span className="font-semibold text-gray-900">{load.expected_depot_departure_time || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Actual</span>
+                  <span className="font-semibold text-gray-900">
+                    {load.departed_depot_time 
+                      ? format(new Date(load.departed_depot_time), 'HH:mm')
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">Difference</span>
+                  <span className="font-semibold text-gray-600">
+                    {load.departed_depot_time && load.expected_depot_departure_time
+                      ? formatDuration(differenceInMinutes(
+                          new Date(load.departed_depot_time),
+                          new Date(`${load.dispatch_date}T${load.expected_depot_departure_time}`)
+                        ))
+                      : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Timeline & Duration */}
@@ -744,6 +991,72 @@ function LoadDetail() {
           </table>
         </div>
       </div>
+
+      {/* Backload (Return Trip) */}
+      {(load.backload_site_id || backloadPackaging.length > 0) && (
+        <div className="card">
+          <div className="card-header">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">Backload (Return Trip)</h2>
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+                Returns
+              </span>
+            </div>
+            {load.backload_site_name && (
+              <p className="text-sm text-gray-500">From: {load.backload_site_name} ({load.backload_site_code})</p>
+            )}
+          </div>
+          
+          {backloadPackaging.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Packaging Type</th>
+                    <th className="text-right">Quantity Returned</th>
+                    <th className="text-right">Damaged</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backloadPackaging.map((bp) => (
+                    <tr key={bp.id}>
+                      <td className="font-medium">{bp.packaging_type_name}</td>
+                      <td className="text-right font-medium text-orange-600">{bp.quantity_returned}</td>
+                      <td className="text-right">
+                        {bp.quantity_damaged > 0 ? (
+                          <span className="text-red-600">{bp.quantity_damaged}</span>
+                        ) : '-'}
+                      </td>
+                      <td className="text-sm text-gray-500">{bp.notes || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4 text-gray-500 text-sm">
+              No return packaging specified for this backload.
+            </div>
+          )}
+          
+          {load.backload_notes && (
+            <div className="p-4 border-t border-gray-100">
+              <p className="text-sm text-gray-500 mb-1">Backload Notes</p>
+              <p className="text-gray-700">{load.backload_notes}</p>
+            </div>
+          )}
+          
+          {load.linked_load_number && (
+            <div className="p-4 border-t border-gray-100 bg-blue-50">
+              <p className="text-sm text-gray-500 mb-1">Linked to Next Load</p>
+              <Link to={`/loads/${load.linked_load_id}`} className="text-primary-600 hover:underline font-medium">
+                {load.linked_load_number} →
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Notes & Discrepancy */}
       {(load.notes || load.discrepancy_notes) && (

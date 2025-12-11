@@ -250,4 +250,114 @@ router.get('/:id/inventory', authenticate, async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/sites/:id/inventory/adjust
+ * Adjust inventory for a site (manual count, purchase, etc.)
+ */
+router.post('/:id/inventory/adjust', authenticate, authorize('admin', 'dispatcher'), [
+  body('packagingTypeId').isUUID(),
+  body('quantity').isInt(),
+  body('adjustmentType').isIn(['adjustment', 'purchase', 'disposal', 'damage', 'repair', 'loss']),
+], async (req, res, next) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { packagingTypeId, quantity, adjustmentType, notes } = req.body;
+    const siteId = req.params.id;
+
+    // Get current inventory
+    const { data: existing } = await supabase
+      .from('site_packaging_inventory')
+      .select('*')
+      .eq('site_id', siteId)
+      .eq('packaging_type_id', packagingTypeId)
+      .single();
+
+    if (existing) {
+      await supabase
+        .from('site_packaging_inventory')
+        .update({
+          quantity: existing.quantity + quantity,
+          handling_count: (existing.handling_count || 0) + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('site_packaging_inventory')
+        .insert({
+          site_id: siteId,
+          packaging_type_id: packagingTypeId,
+          quantity: quantity,
+          handling_count: 1
+        });
+    }
+
+    // Record movement
+    await supabase
+      .from('packaging_movements')
+      .insert({
+        movement_type: adjustmentType,
+        site_id: siteId,
+        packaging_type_id: packagingTypeId,
+        quantity: Math.abs(quantity),
+        direction: quantity >= 0 ? 'in' : 'out',
+        notes: notes,
+        recorded_by: req.user?.id || null
+      });
+
+    res.json({ message: 'Inventory adjusted successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/sites/:id/movements
+ * Get packaging movements for a site
+ */
+router.get('/:id/movements', authenticate, async (req, res, next) => {
+  try {
+    const { limit = 50, offset = 0, packagingTypeId } = req.query;
+
+    let query = supabase
+      .from('packaging_movements')
+      .select(`
+        *,
+        packaging_types (id, code, name),
+        loads (id, load_number),
+        users:recorded_by (first_name, last_name)
+      `, { count: 'exact' })
+      .eq('site_id', req.params.id)
+      .order('recorded_at', { ascending: false })
+      .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+    if (packagingTypeId) {
+      query = query.eq('packaging_type_id', packagingTypeId);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    const movements = data.map(m => ({
+      ...m,
+      packaging_type_code: m.packaging_types?.code,
+      packaging_type_name: m.packaging_types?.name,
+      load_number: m.loads?.load_number,
+      recorded_by_name: m.users ? `${m.users.first_name} ${m.users.last_name}` : null
+    }));
+
+    res.json({ 
+      movements,
+      pagination: { total: count || 0, limit: parseInt(limit), offset: parseInt(offset) }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

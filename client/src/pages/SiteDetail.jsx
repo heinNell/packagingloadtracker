@@ -1,12 +1,12 @@
 import {
-    ArrowDownTrayIcon,
-    ArrowLeftIcon,
-    BuildingOfficeIcon,
-    CubeIcon,
-    EnvelopeIcon,
-    MapPinIcon,
-    PhoneIcon,
-    TruckIcon,
+  ArrowDownTrayIcon,
+  ArrowLeftIcon,
+  BuildingOfficeIcon,
+  CubeIcon,
+  EnvelopeIcon,
+  MapPinIcon,
+  PhoneIcon,
+  TruckIcon,
 } from '@heroicons/react/24/outline';
 import { BarElement, CategoryScale, Chart as ChartJS, Legend, LinearScale, Title, Tooltip } from 'chart.js';
 import { format } from 'date-fns';
@@ -199,16 +199,18 @@ function SiteDetail() {
                 <thead>
                   <tr>
                     <th>Packaging Type</th>
-                    <th className="text-right">Quantity</th>
-                    <th className="text-right">Damaged</th>
-                    <th className="text-right">Threshold</th>
+                    <th className="text-right">On Hand</th>
+                    <th className="text-right">Dispatched</th>
+                    <th className="text-right">Received</th>
+                    <th className="text-right">Returned</th>
+                    <th className="text-right">Handling Count</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {inventory.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="text-center text-gray-500 py-8">
+                      <td colSpan="7" className="text-center text-gray-500 py-8">
                         No inventory data
                       </td>
                     </tr>
@@ -225,14 +227,14 @@ function SiteDetail() {
                             <div className="font-medium">{item.packaging_type_name}</div>
                             <div className="text-sm text-gray-500">{item.packaging_type_code}</div>
                           </td>
-                          <td className="text-right font-medium">{item.quantity.toLocaleString()}</td>
+                          <td className="text-right font-medium">{(item.quantity || 0).toLocaleString()}</td>
+                          <td className="text-right text-gray-600">{(item.total_dispatched || 0).toLocaleString()}</td>
+                          <td className="text-right text-gray-600">{(item.total_received || 0).toLocaleString()}</td>
+                          <td className="text-right text-gray-600">{(item.total_returned || 0).toLocaleString()}</td>
                           <td className="text-right">
-                            {item.quantity_damaged > 0 ? (
-                              <span className="text-red-600">{item.quantity_damaged}</span>
-                            ) : '-'}
-                          </td>
-                          <td className="text-right text-gray-500">
-                            {item.min_threshold || '-'}
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-sm font-medium">
+                              {(item.handling_count || 0).toLocaleString()}
+                            </span>
                           </td>
                           <td>
                             <StatusBadge status={status} />

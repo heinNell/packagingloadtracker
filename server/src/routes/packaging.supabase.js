@@ -118,6 +118,79 @@ router.put('/types/:id', authenticate, authorize('admin'), async (req, res, next
 });
 
 /**
+ * DELETE /api/packaging/types/:id
+ * Delete a packaging type (soft delete - sets is_active to false)
+ */
+router.delete('/types/:id', authenticate, authorize('admin'), async (req, res, next) => {
+  try {
+    const packagingTypeId = req.params.id;
+
+    // Check all tables that reference this packaging type
+    const [loadPackaging, inventory, movements, thresholds] = await Promise.all([
+      supabase.from('load_packaging').select('id').eq('packaging_type_id', packagingTypeId).limit(1),
+      supabase.from('site_packaging_inventory').select('id').eq('packaging_type_id', packagingTypeId).limit(1),
+      supabase.from('packaging_movements').select('id').eq('packaging_type_id', packagingTypeId).limit(1),
+      supabase.from('site_packaging_thresholds').select('id').eq('packaging_type_id', packagingTypeId).limit(1),
+    ]);
+
+    const isInUse = 
+      (loadPackaging.data && loadPackaging.data.length > 0) ||
+      (inventory.data && inventory.data.length > 0) ||
+      (movements.data && movements.data.length > 0) ||
+      (thresholds.data && thresholds.data.length > 0);
+
+    if (isInUse) {
+      // Soft delete - just deactivate since it's referenced elsewhere
+      const { data, error } = await supabase
+        .from('packaging_types')
+        .update({ is_active: false, updated_at: new Date().toISOString() })
+        .eq('id', packagingTypeId)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return res.status(404).json({ error: { message: 'Packaging type not found' } });
+        }
+        throw error;
+      }
+
+      return res.json({ message: 'Packaging type deactivated (in use)', packagingType: data });
+    }
+
+    // Hard delete if not used anywhere
+    const { error } = await supabase
+      .from('packaging_types')
+      .delete()
+      .eq('id', packagingTypeId);
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ error: { message: 'Packaging type not found' } });
+      }
+      // Handle foreign key constraint errors
+      if (error.code === '23503') {
+        // Fall back to soft delete
+        const { data: softDeleted, error: softError } = await supabase
+          .from('packaging_types')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('id', packagingTypeId)
+          .select()
+          .single();
+
+        if (softError) throw softError;
+        return res.json({ message: 'Packaging type deactivated', packagingType: softDeleted });
+      }
+      throw error;
+    }
+
+    res.json({ message: 'Packaging type deleted' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * GET /api/packaging/inventory
  * Get packaging inventory across all sites
  */

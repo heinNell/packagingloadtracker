@@ -1,19 +1,21 @@
 import {
-    IdentificationIcon,
-    PlusIcon,
-    TruckIcon,
-    UserGroupIcon,
-    XMarkIcon,
+  IdentificationIcon,
+  PlusIcon,
+  TruckIcon,
+  UserGroupIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-    createDriver,
-    createUser,
-    createVehicle,
-    getDrivers,
-    getUsers,
-    getVehicles,
+  createDriver,
+  createUser,
+  createVehicle,
+  deleteDriver,
+  deleteVehicle,
+  getDrivers,
+  getUsers,
+  getVehicles,
 } from '../lib/api';
 
 function Settings() {
@@ -74,6 +76,34 @@ function Settings() {
       toast.error(error.response?.data?.error?.message || 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteDriver = async (driver) => {
+    if (!window.confirm(`Are you sure you want to delete driver "${driver.first_name} ${driver.last_name}"?`)) {
+      return;
+    }
+    try {
+      await deleteDriver(driver.id);
+      // Remove from local state immediately so it disappears
+      setDrivers(prev => prev.filter(d => d.id !== driver.id));
+      toast.success('Driver deleted');
+    } catch (error) {
+      toast.error(error.response?.data?.error?.message || 'Failed to delete driver');
+    }
+  };
+
+  const handleDeleteVehicle = async (vehicle) => {
+    if (!window.confirm(`Are you sure you want to delete vehicle "${vehicle.name}"?`)) {
+      return;
+    }
+    try {
+      await deleteVehicle(vehicle.id);
+      // Remove from local state immediately so it disappears
+      setVehicles(prev => prev.filter(v => v.id !== vehicle.id));
+      toast.success('Vehicle deleted');
+    } catch (error) {
+      toast.error(error.response?.data?.error?.message || 'Failed to delete vehicle');
     }
   };
 
@@ -193,6 +223,7 @@ function Settings() {
                   <th>Type</th>
                   <th>Capacity</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,6 +239,15 @@ function Settings() {
                       }`}>
                         {vehicle.is_active ? 'Active' : 'Inactive'}
                       </span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleDeleteVehicle(vehicle)}
+                        className="p-1.5 hover:bg-red-50 rounded text-red-500 hover:text-red-700"
+                        title="Delete vehicle"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -236,6 +276,7 @@ function Settings() {
                   <th>Phone</th>
                   <th>License</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,6 +292,15 @@ function Settings() {
                       }`}>
                         {driver.is_active ? 'Active' : 'Inactive'}
                       </span>
+                    </td>
+                    <td>
+                      <button
+                        onClick={() => handleDeleteDriver(driver)}
+                        className="p-1.5 hover:bg-red-50 rounded text-red-500 hover:text-red-700"
+                        title="Delete driver"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}

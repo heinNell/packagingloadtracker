@@ -12,6 +12,11 @@ ADD COLUMN IF NOT EXISTS confirmed_farm_arrival_at TIMESTAMP WITH TIME ZONE,
 ADD COLUMN IF NOT EXISTS confirmed_farm_departure_by UUID REFERENCES users(id),
 ADD COLUMN IF NOT EXISTS confirmed_farm_departure_at TIMESTAMP WITH TIME ZONE;
 
+-- Add depot expected times columns
+ALTER TABLE loads
+ADD COLUMN IF NOT EXISTS expected_depot_arrival_time TIME,
+ADD COLUMN IF NOT EXISTS expected_depot_departure_time TIME;
+
 -- Add overtime tracking columns
 ALTER TABLE loads
 ADD COLUMN IF NOT EXISTS farm_arrival_overtime_minutes INTEGER DEFAULT 0,
@@ -26,6 +31,8 @@ COMMENT ON COLUMN loads.expected_farm_arrival_time IS 'Default expected arrival 
 COMMENT ON COLUMN loads.expected_farm_departure_time IS 'Default expected departure time from farm (17:00 for BV and CBC)';
 COMMENT ON COLUMN loads.actual_farm_arrival_time IS 'Actual time truck arrived at farm';
 COMMENT ON COLUMN loads.actual_farm_departure_time IS 'Actual time truck departed from farm (loaded)';
+COMMENT ON COLUMN loads.expected_depot_arrival_time IS 'Expected arrival time at depot';
+COMMENT ON COLUMN loads.expected_depot_departure_time IS 'Expected departure time from depot';
 COMMENT ON COLUMN loads.farm_arrival_overtime_minutes IS 'Minutes exceeded for arrival (negative if early)';
 COMMENT ON COLUMN loads.farm_departure_overtime_minutes IS 'Minutes exceeded for departure (negative if early)';
 COMMENT ON COLUMN loads.has_overtime IS 'Flag for loads that exceeded expected times';

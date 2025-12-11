@@ -1,15 +1,16 @@
 import {
-    ArrowRightOnRectangleIcon,
-    Bars3Icon,
-    BuildingOfficeIcon,
-    CalendarDaysIcon,
-    Cog6ToothIcon,
-    CubeIcon,
-    DocumentChartBarIcon,
-    HomeIcon,
-    TruckIcon,
-    UserCircleIcon,
-    XMarkIcon,
+  ArrowRightOnRectangleIcon,
+  Bars3Icon,
+  BuildingOfficeIcon,
+  CalendarDaysIcon,
+  Cog6ToothIcon,
+  CubeIcon,
+  DocumentChartBarIcon,
+  HomeIcon,
+  MapPinIcon,
+  TruckIcon,
+  UserCircleIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
@@ -21,6 +22,7 @@ const navigation = [
   { name: 'Loads', href: '/loads', icon: TruckIcon },
   { name: 'Sites', href: '/sites', icon: BuildingOfficeIcon },
   { name: 'Packaging', href: '/packaging', icon: CubeIcon },
+  { name: 'Live Tracking', href: '/tracking', icon: MapPinIcon },
   { name: 'Reports', href: '/reports', icon: DocumentChartBarIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ];
